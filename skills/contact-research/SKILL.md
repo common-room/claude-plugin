@@ -1,68 +1,65 @@
 ---
 name: contact-research
-description: "Research a specific person using Common Room data. Triggers on 'who is [name]', 'look up [email]', 'research [contact]', 'is [name] a warm lead', or any contact-level question."
+description: "Research a specific person using Common Room data, including people not yet in your workspace. Triggers on 'who is [name]', 'look up [email]', 'research [contact]', 'is [name] a warm lead', 'what does [email] do', or any contact-level question."
 ---
 
 # Contact Research
 
-Retrieve a comprehensive contact profile from Common Room. Supports lookup by email, social handle, or name + company. Returns enriched data including activity history, Spark, scores, website visits, and CRM fields.
+When the person isn't in Common Room, look them up in Prospector by name and company instead of stopping.
+
+**Company context** means what the user's company sells and who it sells to (its ICP). Load it only when a step uses it (fit, ICP or positioning), not for plain lookups. `Me.company` gives the company's name, domains and a summary; if that's empty, look the company up as an Organization, then search the web; if neither helps, ask the user once per session.
 
 ## Step 1: Locate the Contact
 
-Common Room supports multiple lookup methods — use whichever the user has provided:
+Query Contact with commonroom_list_objects:
 
-| What the user gives | Lookup method |
-|---------------------|--------------|
-| Email address | Look up by email (most reliable) |
-| LinkedIn, Twitter/X, or GitHub handle | Look up by social handle — specify handle type explicitly |
-| Name + company | Identity resolution by name + org domain; present matches if ambiguous |
-| Name only | Search by name; if multiple matches, show a brief list and ask the user to confirm |
+| What the user gives | Filter |
+|---------------------|--------|
+| Email address | `memberEmail` `eq` the full address (most reliable) |
+| Name + company | `fullName` `like` the name and `companyWebsite` `eq` the company's domain; show the matches if several |
+| Name only | `fullName` `like` the name; if several match, show a brief list and ask which |
+| LinkedIn, Twitter/X or GitHub handle | No Contact filter takes a handle. Ask for an email, or a name and company |
 
-If no match is found, respond: "Common Room doesn't have a record for this person." Do not speculate or fabricate profile data.
+If no match is found, say: "Common Room doesn't have a record for this person." Then:
+- **Name and company given:** go to Step 1.5.
+- **Email only:** use its domain as the company and ask for the name, then go to Step 1.5.
+- **LinkedIn URL, Twitter/X or GitHub handle, or name only:** ask for the name and company. Prospector can't be searched by email or profile URL.
 
-## Step 2: Fetch Contact Fields
+## Step 1.5: Look Up People Not in Common Room
 
-Use the Common Room object catalog to see available field groups and their contents. For full profiles, request all groups. For targeted questions, request only what's relevant.
+Search `ProspectorContact` with `fullName` `like` the name and `companyDomain` `eq` the company's domain, requesting `title`, `companyName`, `seniority` and `linkedInHandle`. If several match, show them and ask which. Reading Prospector adds nothing to the workspace.
 
-**Key field groups to know about:**
-- **Scores** — always return as raw values or percentiles, never labels
-- **Recent activity** — use `Contact Initiated` filter (last 60 days) for their actions, not your team's
-- **Website visits** — total count + specific pages (last 12 weeks)
-- **Spark** — retrieve all Sparks when tracking engagement evolution over time
+If found and their company isn't in Common Room, also find it: `ProspectorCompany` with `groupWebsite` `eq` the domain (exact match; `like` returns unrelated companies), requesting `description`, `employees`, `revenueRange`, `subIndustry`, `technologies` and `location`. Then produce the "Not in Common Room" output below. Prospector has no activity, scores or Spark — skip Steps 2–5.
 
-## Step 3: Run Spark Enrichment (If Available)
+If not found, say so and offer a web search on their name and company.
 
-If Spark is available, use it. Spark provides:
-- Professional background and job history
-- Social presence and influence signals
-- Persona classification: Champion, Economic Buyer, Technical Evaluator, End User, or Gatekeeper
-- Inferred role in the buying process
+For a contact already in Common Room, `jobChangeDate` and `previousCompany` show a job change; `currentCompany` carries the new company's `domain`. If they were a champion, check the new company: in Common Room with commonroom_list_objects (owner, customer status, open opportunity), otherwise in Prospector (`ProspectorCompany`, `groupWebsite` `eq` its domain, requesting `description`, `employees`, `revenueRange`, `subIndustry`, `technologies` and `location`). Rate its fit against the company context. If the new company is a customer or has an open opportunity, tell its owner instead of offering outreach. Otherwise, if it's worth acting on, offer outreach (compose-outreach) or enrollment (contact-actions).
 
-If Spark is unavailable but real activity data exists (recent actions, website visits, community engagement), infer a persona from those signals. If neither Spark nor activity data is available, classify as Unknown — do not guess a persona from title alone.
+## Step 2: Fetch Contact Properties
 
-Retrieve **all Sparks** (not just the most recent) when the user wants to understand how this contact's engagement has evolved over time.
+Call commonroom_get_catalog for the Contact properties this workspace has, then commonroom_list_objects with only the `properties` the question needs:
+
+- `leadScores` — report the raw score or percentile, never a label.
+- `recentActivities` — the contact's own activities, newest first, not your team's. For a set window (default: last 60 days), query Activity with `contactId`, `activityTime` and `activityIsUserInitiated` true.
+- `recentWebVisitsNumber` and `recentWebPages` — visit total and top 5 pages for the last 12 weeks.
+- `sparkSummary` — Spark. Request `recentSparkSummaries` as well when the user asks how engagement has changed over time.
+- `segments`, `tags`, `profiles`, `linkedInUrls`, `jobChangeDate`, `previousCompany`, `currentCompany`
+
+## Step 3: Read Spark (If Available)
+
+Spark gives professional background, influence signals and a persona: Champion, Economic Buyer, Technical Evaluator, End User or Gatekeeper. If `sparkSummary` is null but real activity exists (recent actions, website visits), infer a persona from it and say it's inferred. With neither, the persona is Unknown — never guess one from title alone.
 
 ## Step 4: Assess Account Context
 
-Pull an abbreviated account snapshot for this contact's parent company. Note:
-- Open opportunities, expansion signals, or churn risk at the account level
-- Whether other contacts at this company are also active
-- How this person's engagement compares to their colleagues
+Pull a short snapshot of the contact's company: open opportunities, expansion or churn signals, whether other contacts there are active, and how this person's engagement compares to theirs.
 
 ## Step 5: Identify Conversation Angles
 
-Based on activity and signals, surface the strongest 2–3 hooks:
-- A recent `Contact Initiated` activity (community post, product event, support ticket)
-- A specific web page they visited recently — especially if it signals evaluation intent
-- A job change, promotion, or company news
-- Their Spark persona and what that suggests about communication style
-- Their role in a known active deal
+Pick the 2–3 strongest hooks: a recent activity of their own, a page they visited that signals evaluation, a job change or company news, their Spark persona, or their role in an active deal.
 
 ## Output Format
 
-Only include sections where data was actually returned. Omit sections with no data rather than filling them with guesses.
-
-**When data is rich:**
+Include only sections data was returned for; omit the rest.
 
 ```
 ## [Contact Name] — Profile
@@ -81,7 +78,7 @@ Only include sections where data was actually returned. Omit sections with no da
 [All scores as raw values or percentiles]
 
 **Recent Activity** (last 60 days) [If activity returned]
-[3–5 bullets with dates]
+[3–5 bullets with dates; lead with this, and flag it when the newest is over 30 days old]
 
 **Website Visits** (last 12 weeks) [If visit data exists]
 [Total visit count + list of pages visited]
@@ -99,30 +96,24 @@ Only include sections where data was actually returned. Omit sections with no da
 [2–3 specific, signal-backed openers]
 ```
 
-**When data is sparse (e.g., only name, title, email, tags returned; sparkSummary is null):**
+**Sparse data** (for example only name, title, email and tags; `sparkSummary` null): show only what was returned, list what's missing, and add any web findings on their name and company. Don't fill the template.
+
+**Not in Common Room (Step 1.5):**
 
 ```
-## [Contact Name] — Profile (Limited Data)
+## [Name] — Prospector (not in your workspace)
 
-**Data available:** [List exactly what Common Room returned]
+**Person:** [role, company — only fields returned]
+**Company:** [employees, sub-industry, technologies, location — only fields returned]
 
-[Present only the returned fields]
-
-**Web Search**
-[Any findings from searching their name + company]
-
-**Note:** Common Room has limited data on this contact. No activity history, scores, or Spark profile available. I can run deeper web searches or look up their company for additional context.
+**Next step:** "Want me to save [Name] as a contact in Common Room?"
 ```
 
-Do not generate conversation starters, persona inferences, or engagement assessments from sparse data. These require real signals.
+If the user agrees, create the contact with commonroom_create_object, passing prospectorContactId.
 
-## Quality Standards
+Conversation starters, persona inferences and engagement assessments need real signals; don't produce them from sparse data or Prospector.
 
-- Lookup must use the correct method for the input type — don't guess on email vs. handle
-- Scores as raw/percentile only — never labels
-- `Contact Initiated` activity (last 60 days) is the primary engagement signal — lead with it
-- If Spark is unavailable, say so — don't fabricate a persona from title alone
-- Flag any contact where the most recent activity is older than 30 days
+**Saving.** Ask before every write, and show the fields and values. Contacts upsert, so saving one that already exists updates it. Never invent contact details. Report what was saved and anything rejected, with the reason.
 
 ## Reference Files
 

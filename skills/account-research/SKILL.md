@@ -1,85 +1,84 @@
 ---
 name: account-research
-description: "Research a company using Common Room data. Triggers on 'research [company]', 'tell me about [domain]', 'pull up signals for [account]', 'what's going on with [company]', or any account-level question."
+description: "Research a company using Common Room data, including companies not yet in your workspace. Triggers on 'research [company]', 'tell me about [domain]', 'pull up signals for [account]', 'what's going on with [company]', 'what's the tech stack at [domain]', 'who's on the buying committee at [company]', 'who are we missing at [company]', or any account-level question."
 ---
 
 # Account Research
 
-Retrieve and synthesize account information from Common Room. Handles four interaction patterns: full overviews, targeted field questions, sparse data situations, and combined MCP data + LLM reasoning.
+When a company isn't in Common Room, look it up in Prospector instead of stopping.
+
+**Company context** means what the user's company sells and who it sells to (its ICP). Load it only when a step uses it (fit, ICP or positioning), not for plain lookups. `Me.company` gives the company's name, domains and a summary; if that's empty, look the company up as an Organization, then search the web; if neither helps, ask the user once per session.
 
 ## Step 0: Load User Context (Me)
 
-Before researching any account, fetch the `Me` object from Common Room. This provides:
-- The user's profile, title, role, and Persona in CR
-- The user's segments ("My Segments")
-
-Default all queries to the user's own segments unless the user explicitly asks for a broader view. This keeps results scoped to their territory.
+Fetch the `Me` object for the user's title, role, personas and segments. Default all queries to the user's own segments ("My Segments") unless they ask for a broader view.
 
 ## Step 1: Identify the Interaction Pattern
 
-Determine what the user actually needs before deciding how much data to fetch:
-
-**Pattern 1 — Full Overview:** "Tell me about Datadog" / "Summarize cloudflare.com"
-→ Fetch the full field set and produce a structured briefing.
-
-**Pattern 2 — Targeted Question:** "Who owns the Snowflake account?" / "Is acme.io showing buying signals?" / "What's the employee count for notion.so?"
-→ Fetch only the relevant field(s). Return a direct, concise answer — do not produce a full brief for a simple question.
-
-**Pattern 3 — Sparse Data:** "Tell me about tiny-startup.io"
-→ If Common Room has limited data for an account, say so honestly: "There is limited information available for this account." Never speculate or fill gaps with generic statements.
-
-**Pattern 4 — Combined Reasoning:** Fetch structured MCP data, then layer in LLM analysis — e.g., "Stripe has 8,000 employees and is hiring heavily for AI roles. Based on your ICP of 1k–10k fintech companies, this is a strong fit."
+- **Pattern 1 — Full overview** ("Tell me about Datadog"): fetch the full property set and produce the briefing in Step 6.
+- **Pattern 2 — Targeted question** ("Who owns the Snowflake account?"): fetch only the relevant properties and answer in 1–3 sentences, not a brief.
+- **Pattern 3 — Sparse or missing data:** say what Common Room has. No record → Prospector (Step 3.5); limited data → web search (Step 4).
+- **Pattern 4 — Combined reasoning** ("Is Stripe a good fit?"): fetch the data, then reason over it (Step 5).
+- **Pattern 5 — Buying committee** ("Who are we missing at acme.io?"): Step 5.5.
 
 ## Step 2: Look Up the Account
 
-Search Common Room for the account by domain or company name. Exact match first; if no result, try partial match and confirm with the user before proceeding.
+Find the Organization by domain (`companyWebsite`) or name (`companyName`) across the whole workspace, not just My Segments; if it isn't in My Segments, say so. Exact match first; if nothing, try a partial match and confirm with the user before proceeding.
 
-## Step 3: Fetch the Right Fields
+If there's still no match, the company isn't in the workspace. Go to Step 3.5 with its domain; if the user gave only a name, ask for the domain.
 
-Use the Common Room object catalog to see available field groups and their contents. For full overviews, request all field groups. For targeted questions, request only what's relevant.
+## Step 3: Fetch the Right Properties
 
-**Key field groups to know about:**
-- **Scores** — always return as raw values or percentiles, never labels
-- **Summary research** — RoomieAI output; often the richest qualitative signal
-- **Top contacts** — sorted by score desc; use communityMemberID for full lookups
+Call commonroom_get_catalog for the Organization properties this workspace has, then commonroom_list_objects with only the `properties` the question needs:
 
-**Choosing what to fetch:**
+- `leadScores` — `{scoreId, score, percentile}` per configured score. Report the raw score or percentile, never a label.
+- `researchResults` — RoomieAI research answers, each with its `promptName`; `isPrimaryPrompt` marks the primary account summary.
+- `topContacts` — up to 5 names and titles, with no scores, and it can still list people who have left. Use it for a quick "who's there" and as the departure check below, not as the ranked contact list.
 
-| User query type | Fields to request |
-|-----------------|------------------|
-| Full account overview | All field groups |
-| "Who owns this account?" | Company profiles & links, CRM fields |
-| "Is this company a good fit?" | Key fields, scores, about |
-| "What signals is this account showing?" | Scores, summary research, CRM fields |
-| "Who are the top contacts?" | Top contacts |
-| "What does RoomieAI say about them?" | Summary research, all research |
-| "Find engineers at this account" | Prospects (with title filter) |
+**Contacts at the account:** a second commonroom_list_objects call on Contact with `companyWebsite` `eq` the domain, sorted by a contact lead score (`ls_*`; check the LeadScore list, since organization scores also appear) descending where the workspace has one (otherwise `latest_activity`), limit 5–10, requesting `title`, `leadScores`, `jobChangeDate`, `previousCompany` and `recentActivities`. Flag anyone whose `jobChangeDate` is recent (a new arrival). This query only returns current employees, so for departures fetch `currentCompany` for any `topContacts` entry it didn't return; anyone now at another company has left — flag them, especially a former champion.
+
+**Recent activity at the account** (full overview): commonroom_list_objects on Activity with `organizationId`, sort `activityTime` descending, limit 15. `EmploymentStarted` entries show contacts taking new roles; when the previous role at this company has no `finishedAt`, it may be a side role rather than a departure, so say which the data shows.
+- `profiles` — linked CRM records; `cf_*` — CRM and other custom fields (owner, stage, ARR). Find their IDs with objectType `CustomField`.
+- `about`, `employees`, `subIndustry`, `location`, `technologies`, `revenueRangeMin`, `revenueRangeMax`
+- `recentNews`, `recentJobOpenings`, `surgingTopics`
+
+| User query type | Request |
+|-----------------|---------|
+| Full account overview | All of the above, plus the contact and activity queries |
+| "Who owns this account?" | `profiles` and the owner `cf_*` field |
+| "Is this company a good fit?" | `about`, `employees`, `subIndustry`, `technologies`, `leadScores` |
+| "What signals is this account showing?" | `leadScores`, `researchResults`, `surgingTopics`, `recentNews`, `recentJobOpenings` |
+| "Who are the top contacts?" | The contact query |
+| "What does RoomieAI say about them?" | `researchResults` |
+| "Find engineers at this account" | Contacts with `companyWebsite` `eq` the domain and a `title` filter; for people not in the workspace, `ProspectorContact` with `companyDomain` and `title` |
+
+## Step 3.5: Look Up Companies Not in Common Room
+
+When the company isn't in the workspace (Step 2), find it in Prospector: `ProspectorCompany` with `groupWebsite` `eq` the domain (exact match; `like` returns unrelated companies), requesting `description`, `employees`, `revenueRange`, `subIndustry`, `technologies` and `location`. Prospector holds only companies that aren't in your workspace. Reading it adds nothing to the workspace.
+
+Label Prospector fields as Prospector, separate from Common Room data. Prospector has no signals, scores or activity — don't infer any.
 
 ## Step 4: Web Search (Sparse Data Only)
 
-Common Room is the primary data source. Do not run web search when CR returns rich data.
-
-When CR data is sparse (Pattern 3 — few fields returned, no activity, no scores), run a targeted web search to fill gaps:
-- `"[company name]" news` — scoped to the last 30 days
-- Look for: funding rounds, acquisitions, product launches, executive changes, press coverage
-
-If the user explicitly asks for external context or recent news, run web search regardless of data richness.
+Skip web search when Common Room returns rich data. When it's sparse (few properties, no activity, no scores), or the user asks for news or external context, search `"[company name]" news` for the last 30 days: funding, acquisitions, launches, executive changes.
 
 ## Step 5: Apply Reasoning (Pattern 4)
 
-When the user's question invites synthesis — not just data retrieval — layer in analysis:
-- Compare account data to known ICP criteria from session context
-- Identify fit signals (size, industry, tech stack, hiring patterns)
-- Note timing signals (funding, trial status, recent activity spike)
-- Frame insights as clearly derived from data, not assumed
+Compare the account's size, industry, tech stack and hiring to the ICP from the company context, and note timing signals (funding, trial status, an activity spike). Say which returned values each conclusion rests on.
 
-When the user's company context is available (see `references/my-company-context.md`), position findings relative to the user's value proposition and ICP.
+## Step 5.5: Buying Committee (Pattern 5)
+
+1. **List known contacts** at the account with commonroom_list_objects (contacts filtered by the organization): title, Spark persona, scores and recent activity.
+2. **Map roles:** Champion, Economic Buyer, Technical Evaluator, End User or Gatekeeper. Use the Spark persona when present; otherwise infer from title and activity, and say it's inferred.
+3. **Name the gaps** against the roles the deal needs, from the company context, or ask the user. Flag a champion who has left the company.
+4. **Find candidates** for each gap among Prospector contacts at the account's domain, filtered by title and seniority. Show two or three per gap with title and why they fit.
+5. **Save the chosen ones** with commonroom_create_object (prospectorContactId) and add them to a segment if asked, once the user approves the names (see Saving below). Then offer outreach (compose-outreach).
+
+Output: a role map table (Role | Contact | Title | Engagement | Source of role) followed by Gaps and Candidates.
 
 ## Step 6: Produce Output
 
-Only include sections where Common Room returned actual data. Omit sections entirely rather than filling them with guesses.
-
-**Full overview (when data is rich):**
+Every fact must come from a tool call. Include only sections Common Room returned data for; omit the rest.
 
 ```
 ## [Company Name] — Account Overview
@@ -88,7 +87,7 @@ Only include sections where Common Room returned actual data. Omit sections enti
 [2–3 sentences: what they do, plan/stage, relationship status]
 
 **Key Details**
-[Employee count, industry, location, domain, funding — from key fields]
+[Employee count, industry, location, domain, revenue]
 
 **CRM & Ownership** [If CRM fields returned]
 [Owner, opp stage, ARR]
@@ -100,41 +99,19 @@ Only include sections where Common Room returned actual data. Omit sections enti
 [3–5 most important signals with dates]
 
 **Top Contacts** [If contacts returned]
-[Name | Title | Score — top 5 sorted by score desc]
+[Name | Title | Score | Latest activity — top 5 from the contact query; flag new arrivals and anyone who left]
 
-**RoomieAI Research** [If summary research is non-null]
-[Summary research output; list all available research topic names]
+**RoomieAI Research** [If `researchResults` returned]
+[Primary summary; names of the other research topics]
 
 **Recommended Next Steps**
 [2–3 specific, signal-backed actions]
 ```
 
-**Targeted question:** 1–3 sentence direct answer. No full brief needed.
+**Sparse or missing data:** show only what was returned and list what's missing (or "Not in your workspace"); don't fill the template. Add Prospector fields and web findings under their own labels. If the company isn't in Common Room, ask "Want me to save [Company] to Common Room?" and, if the user agrees, create the organization with commonroom_create_object, passing prospectorCompanyId when Prospector found it, otherwise the domain.
 
-**Sparse data (few fields returned, most sections would be empty):**
-
-```
-## [Company Name] — Account Overview (Limited Data)
-
-**Data available:** [List exactly what Common Room returned]
-
-[Present only the returned fields]
-
-**Web Search**
-[Findings from web search — or "No significant recent news found"]
-
-**Note:** Common Room has limited data on this account. The account may need enrichment in Common Room.
-```
-
-## Quality Standards
-
-- Scores must always be raw values or percentiles — never categorical labels
-- For targeted questions, answer precisely and don't over-deliver
-- Be explicit when data is missing or stale — don't speculate
-- Keep full briefings readable in 2–3 minutes
-- **Every fact must trace to a tool call** — don't include data not returned by Common Room
+**Saving.** Ask before every write and show what will be written: the records, the fields and values, and any segment. Contacts and organizations upsert, so saving one that already exists updates it. Before creating a segment, look for an existing one with commonroom_list_objects. Report what was saved and anything rejected, with the reason.
 
 ## Reference Files
 
 - **`references/signals-guide.md`** — signal type taxonomy and interpretation guide
-

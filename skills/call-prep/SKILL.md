@@ -1,19 +1,17 @@
 ---
 name: call-prep
-description: "Prepare for a customer or prospect call using Common Room signals. Triggers on 'prep me for my call with [company]', 'prepare for a meeting with [company]', 'what should I know before talking to [company]', or any call preparation request."
+description: "Prepare for a customer or prospect call using Common Room signals, and log what came out of it afterwards. Triggers on 'prep me for my call with [company]', 'prepare for a meeting with [company]', 'what should I know before talking to [company]', 'log my call with [company]', 'what came out of my call with [company]', 'update Common Room after my meeting', or any call preparation or follow-up request."
 ---
 
 # Call Prep
 
-Produce a complete, scannable call prep brief by combining account research, contact research, and signal synthesis from Common Room.
+**Company context** means what the user's company sells and who it sells to (its ICP). Load it only when a step uses it (fit, ICP or positioning), not for plain lookups. `Me.company` gives the company's name, domains and a summary; if that's empty, look the company up as an Organization, then search the web; if neither helps, ask the user once per session.
 
 ## Prep Process
 
 ### Step 1: Identify the Account and Attendees
 
-Parse what the user has provided:
-- **Company name** — required; look up the account in Common Room
-- **Attendee names** — optional; if provided, research each one
+The company name is required; attendee names are optional.
 
 **Calendar lookup:** If a `~~calendar` connector is available, search for upcoming meetings with the named company to automatically surface attendee names, meeting time, and any meeting notes or agenda. Use this to fill gaps the user didn't provide.
 
@@ -21,47 +19,46 @@ If neither attendees nor a calendar match can be found, ask: "Who will be on the
 
 ### Step 2: Run Account Research
 
-Use the account-research skill process to build a full account snapshot. For call prep, prioritize:
-- Recent product signals (what are they doing in the product right now?)
-- Open opportunities or renewal timeline
-- Any risk signals (declining usage, support tickets, churned seats)
-- Key recent events (funding, executive change, new hire)
+Follow the account-research skill. For call prep, prioritize recent product signals, open opportunities or the renewal timeline, risk signals (declining usage, support tickets, churned seats) and key recent events (funding, executive change, new hire).
 
-When reviewing activity history, prioritize Gong and call recording activities — these provide direct context about previous conversations. Do not filter out call recordings by activity origin.
+In the activity history, prioritize Gong and call recording activities; they show what was said in earlier conversations. Do not filter out call recordings by activity origin.
 
 ### Step 3: Run Contact Research for Each Attendee
 
-For each external attendee, use the contact-research skill process. For call prep, focus on:
-- Role and influence in the buying process
-- Their personal activity and engagement history
-- Any recent signals that suggest their current mood/priorities
-- Spark persona classification if available
+Follow the contact-research skill for each external attendee. Focus on their role and influence in the buying process, their own activity, recent signals of their current priorities, and their Spark persona if available.
 
 ### Step 4: Synthesize Talking Points and Objectives
 
-Based on the combined account and contact research:
-- Identify the **call objective** (e.g., discovery, demo, expansion conversation, renewal, QBR)
-- Generate **3–5 tailored talking points** grounded in specific signal data
-- Anticipate **2–3 likely objections or topics** the customer may raise
-- Suggest a **recommended outcome** for the call
-
-When the user's company context is available (see `references/my-company-context.md`), tailor talking points to the user's product and value proposition.
+- The **call objective** (discovery, demo, expansion, renewal, QBR)
+- **3–5 talking points**, each grounded in a specific signal and, with company context, tied to the user's product
+- **2–3 likely objections or topics** the customer may raise
+- A **recommended outcome** for the call
 
 ### Step 5: Recency Check (Web Search)
 
-After gathering all Common Room data, run a quick recency check to catch anything that happened since the last CR data sync. This is supplementary — CR data drives the prep; web search only adds recency.
+After the Common Room research, check for anything newer than its data. Common Room drives the prep; web search only adds recency.
 
-**Company news:** Search `"[company name]" news` filtered to the last 14 days. Look for funding announcements, product launches, leadership changes, layoffs, partnerships, or press coverage.
+- **Company news:** `"[company name]" news`, last 14 days: funding, launches, leadership changes, layoffs, partnerships.
+- **Attendees:** `"[full name]" "[company name]"`: recent articles, posts, talks or podcasts.
 
-**Attendee presence:** For each external attendee, search `"[full name]" "[company name]"` — look for recent articles, LinkedIn posts, conference talks, podcasts, or published opinions.
+Put a significant item (a new round, a major hire) in Signal Highlights; mention the rest briefly.
 
-If a company news item is significant (e.g., just raised a round, announced a major hire), flag it in Signal Highlights. Otherwise, include findings briefly — don't let web search results overshadow CR signals.
+### Step 6: After the Call
+
+When the seller asks to log the call or what came out of it. Nothing is written without the seller's approval.
+
+1. **Get the source.** In order: the transcript or call analysis from `~~conversation intelligence` (Zoom, Gong) if connected; call recording activity in Common Room; the seller's notes. If there is none, ask for notes. Never infer what happened from the calendar entry alone.
+2. **Match attendees.** Look up each external attendee by email with commonroom_list_objects. Offer to save anyone not found with commonroom_create_object. External attendees only; never log activities on teammates.
+3. **Pull out what happened,** with a quote or timestamp for each: meeting type, each attendee's role (only when the source shows it), product feedback and feature requests, objections, commitments with owners and dates, and the next meeting if one was booked.
+4. **Propose updates, grouped by record:**
+   - An activity per attendee with commonroom_create_object: demo → UserInputAttendedDemoAdded; other meeting → UserInputAttendedMeetingAdded; next meeting booked → UserInputBookedMeetingAdded; product feedback → UserInputProvidedProductFeedbackAdded; feature request → UserInputSubmittedFeatureRequestAdded. Body: one or two sentences from the source; occurredAt: the meeting time.
+   - One note on the organization: summary, objections, next steps with owners and dates.
+   - Role tags such as "Champion": look up existing tags with commonroom_list_objects (objectType Tag) and reuse them; create a missing one with commonroom_create_object (objectType Tag, entityType contact); apply them with commonroom_update_object.
+5. **Write what's approved,** one approval per group, and report what was written and anything rejected, with the reason. Then offer a follow-up email (compose-outreach) or adding attendees to a segment.
 
 ## Output Format
 
-The output adapts to how much data Common Room returned. Only include sections where you have real data. Never fill a section with invented details.
-
-### When data is rich (multiple field groups returned, activity history, scores, signals):
+Include only sections you have real data for. Never invent deal context: no proposals, competitor comparisons, pricing, trial terms or objections that a tool call didn't return.
 
 ```
 ## Call Prep: [Company] — [Date/Time if known]
@@ -103,34 +100,24 @@ The output adapts to how much data Common Room returned. Only include sections w
 [1–2 sentences: what success looks like for this meeting]
 ```
 
-### When data is sparse (few fields returned, no activity, null sparkSummary):
+**Sparse data** (few properties returned, no activity, null `sparkSummary`): show only what was returned plus any web findings, list what's missing, and say what you can look up next. Don't fill the template.
+
+**After the call (Step 6):**
 
 ```
-## Call Prep: [Company] — [Date/Time if known]
+## [Company] — [Meeting type], [date]
 
-**Data available:** [List exactly what Common Room returned — e.g., "Name, title, email, two tags. No activity history, no scores, no Spark data."]
+**Activities**
+| Attendee | Activity type | Body | Source |
+|---|---|---|---|
 
-### What I Found
-[Only the fields actually returned, presented as-is]
+**Account note**
+[Summary · Objections · Next steps with owners and dates]
 
-### Web Search Results
-[Findings from web search on the company and attendees — or "No significant results"]
-
-### Suggested Next Steps
-- I can pull [specific field groups] from Common Room if available
-- I can run deeper web searches on [specific topics]
-- You may want to check Common Room directly for [what's missing]
+**Tags**
+| Attendee | Tag | Evidence |
+|---|---|---|
 ```
-
-Do not generate a full call prep brief from sparse data. A short honest output is always better than a long fabricated one.
-
-## Quality Standards
-
-- Ground every talking point in a real signal — no generic filler
-- Keep the brief tight — it should be readable in 5 minutes or less
-- Flag unknowns explicitly — if attendee research is thin, say so
-- Time-box the research — don't over-research at the expense of speed
-- **Never invent deal context** — no fabricated proposals, competitor comparisons, pricing, trial terms, or objections not returned by a tool call
 
 ## Reference Files
 

@@ -9,6 +9,7 @@ Plugin files use `~~category` as a placeholder for whatever tool the user connec
 | Category | Placeholder | Included servers | Other options |
 |----------|-------------|-----------------|---------------|
 | Calendar | `~~calendar` | Google Calendar (via MCP) | Outlook / Microsoft 365 Calendar |
+| Conversation intelligence | `~~conversation intelligence` | Zoom (via MCP) | Gong |
 
 ## Common Room MCP
 
@@ -23,3 +24,7 @@ The `~~calendar` connector is used in two skills:
 If no calendar is connected, both skills gracefully fall back to asking the user for meeting details manually. The calendar connector is entirely optional.
 
 To connect a calendar, install a compatible calendar MCP server and ensure it is authenticated. The plugin will automatically detect and use it when available.
+
+## Conversation Intelligence (Optional)
+
+The `~~conversation intelligence` connector is used in **call-prep** to log what came out of a call from its transcript and analysis. If none is connected, the skill asks the seller for notes instead.
