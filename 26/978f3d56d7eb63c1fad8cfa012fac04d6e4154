@@ -1,0 +1,21 @@
+skills/contact-actions/SKILL.md
+  s_3f5b85e236aae8::t_57011819577b3a 52,57
+.claude-plugin/plugin.json
+  s_3f5b85e236aae8::t_b741ac4e1bf9cd 3-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "26978f3d56d7eb63c1fad8cfa012fac04d6e4154",
+  "prompts": {},
+  "sessions": {
+    "s_3f5b85e236aae8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1c9473fa-cc50-4160-b57e-714f07a0b6e0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Kirill <kirill@commonroom.io>"
+    }
+  }
+}
