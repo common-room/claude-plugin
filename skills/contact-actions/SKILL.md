@@ -49,12 +49,12 @@ Run commonroom_list_objects with the final filter and `"recordCount"` in propert
 
 | Goal | Action | Sends messages? |
 |------|--------|-----------------|
-| Sequence, cadence or flow (Outreach, Salesloft, HubSpot, Gong, Apollo, Groove, Smartlead, Zoom Engage) | enroll_in_sequence | Yes, now and on the sequence's schedule |
+| Sequence, cadence or flow (Outreach, Salesloft, HubSpot, Gong, Apollo, Groove, Nooks, Smartlead, Zoom Engage) | enroll_in_sequence | Yes, now and on the sequence's schedule |
 | Salesforce campaign | enroll_in_sequence | Can start the customer's own automation |
 | Dialer call list | add_to_call_list | No |
 | Create or update in the CRM | export_to_crm | No; overwrites fields on existing records |
 
-With commonroom_list_action_destinations for that action: `kind: provider` lists connected providers (for a CRM export, the provider ID is the destination); `kind: destination` lists that provider's sequences, campaigns or call lists; `kind: sender` lists who can send. Enrollment in Apollo, HubSpot, Groove, Outreach, Salesloft or Gong needs a sender; Zoom Engage sends as the seller by default; a Salesloft CRM export needs the Salesloft user who will own the people. For Gong, HubSpot, Outreach and Zoom Engage, pass the sender when listing destinations so personal flows and sequences show up.
+With commonroom_list_action_destinations for that action: `kind: provider` lists connected providers (for a CRM export, the provider ID is the destination); `kind: destination` lists that provider's sequences, campaigns or call lists; `kind: sender` lists who can send. Enrollment in Apollo, HubSpot, Groove, Nooks, Outreach, Salesloft or Gong needs a sender; Zoom Engage sends as the seller by default; a Salesloft CRM export needs the Salesloft user who will own the people. For Gong, HubSpot, Outreach and Zoom Engage, pass the sender when listing destinations so personal flows and sequences show up.
 
 Recommend one destination and say why. If the action category isn't allowed, stop: a workspace admin can allow it under Settings > OAuth clients > Allowed actions.
 
